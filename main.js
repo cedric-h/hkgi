@@ -9,6 +9,9 @@ app.get('/', (req, res) => {
   res.send('Hello World!')
 })
 
+/* exclusive of max */
+const randrange = (min, max) => min + Math.floor(Math.random() * (max - min));
+const choose = arr => arr[Math.floor(Math.random() * arr.length)];
 
 const XP_PER_SEC = 10;
 const lvls = [
@@ -47,21 +50,41 @@ const giveItem = (stead, items) => {
   }
 };
 
+const plantStatuses = (stead, plant) => {
+  const status_items = [ "cyl_item", "bbc_item", "hvv_item" ];
+  return stead.ephemeral_statuses.concat(
+    Object.entries(stead.inv)
+      .filter(([kind, n]) => status_items.includes(kind))
+      .flatMap(([kind, n]) => [...Array(n)].map(x => ({ kind, xp_multiplier: 1.5 })))
+      .filter(status => {
+        const c3 = str => str.substr(0, 3);
+        return (["hvv", "bbc", "cyl"].includes(c3(status.kind)) &&
+                c3(status.kind) == c3(plant.kind))               ;
+      })
+  );
+}
+const plantXpMultiplier = (stead, plant) => {
+  let xp_multiplier = 1;
+  for (const status of plantStatuses(stead, plant))
+    xp_multiplier += status.xp_multiplier;
+  return xp_multiplier;
+};
+
 
 const stead = {
+  ephemeral_statuses: [],
   plants: [
     {
       kind: "dirt",
-      id: 0,
       xp: 0,
     },
     {
       kind: "bbc",
-      id: 1,
       xp: 0,
     }
   ],
   inv: {
+    "cyl_item": 1,
     "nest_egg": 1,
     "bbc_seed": 1,
     "hvv_seed": 1,
@@ -70,29 +93,46 @@ const stead = {
 };
 const SECS_PER_TICK = 0.5;
 setInterval(() => {
+  stead.ephemeral_statuses = stead.ephemeral_statuses.filter(status => {
+    status.tt_expire -= SECS_PER_TICK * 1000;
+
+    return (status.tt_expire > 0);
+  });
+
   for (const plant of stead.plants) {
     if (plant.kind == "dirt") continue;
 
-    const xp_per_tick = XP_PER_SEC * SECS_PER_TICK;
-    const xppy = xpPerYield(plant.xp);
+    let xp_multiplier = plantXpMultiplier(stead, plant);
 
-    plant.xp += xp_per_tick;
-    const xp_since_yield = plant.xp % xppy;
-    if (xp_since_yield <= xp_per_tick)
-      giveItem(stead, { [plant.kind + "_essence"]: 1 });
+    /* I don't trust this logic to work with multiplier > 1 */
+    for (let i = xp_multiplier; i > 0; i--) {
+      const mult = Math.min(i, 1.0);
+
+      const xp_per_tick = XP_PER_SEC * SECS_PER_TICK;
+      const xppy = xpPerYield(plant.xp);
+
+      plant.xp += xp_per_tick * mult;
+      const xp_since_yield = plant.xp % xppy;
+      if (xp_since_yield <= xp_per_tick)
+        giveItem(stead, { [plant.kind + "_essence"]: 1 });
+    }
   }
 }, SECS_PER_TICK*1000);
 
 const serializeStead = stead => {
-  const sPlant = ({ kind, id, xp }) => {
+  const sPlant = (plant) => {
+    const { kind, xp } = plant;
+    if (kind == "dirt") return { kind: "dirt" };
     const { lvl, xp_to_go } = lvlFromXp(xp);
     const xppy = xpPerYield(xp);
+    const xpm = plantXpMultiplier(stead, plant);
     return {
       kind,
-      id,
       lvl,
-      tt_yield: (xppy - xp % xppy) / XP_PER_SEC * 1000,
-      tt_lvlup: xp_to_go           / XP_PER_SEC * 1000,
+      tt_yield:   (xppy - (xp%xppy)) / XP_PER_SEC * 1000 / xpm,
+      yield_prog: (xp%xppy) / xppy,
+      tt_lvlup:   xp_to_go           / XP_PER_SEC * 1000 / xpm,
+      lvlup_prog: xp_to_go / lvls[lvl]
     };
   };
 
@@ -201,8 +241,10 @@ app.use(express.json());
 app.post('/useitem', (req, res) => {
   const { item } = req.body;
   if (item == undefined)
+    return res.json({ ok: false, msg: "learn how to use the api noob" });
 
-  if (manifest.items[item].usable)
+  console.log("usable: " + manifest.items[item].usable);
+  if (!manifest.items[item].usable)
     return res.json({ ok: false, msg: "that's not an item you can use!" });
 
   if (!takeItem(stead, { [item]: 1 }))
@@ -210,13 +252,31 @@ app.post('/useitem', (req, res) => {
 
   console.log("pretend I'm using an " + item);
   if (item == "nest_egg") {
-    giveItem({
-      "warp_powder": 5,
-      "bbc_seed": 3,
-      "hvv_seed": 3,
-      "cyl_seed": 3,
+    giveItem(stead, {
+      "powder_t1": choose([4, 5, 5, 5, 5, 6, 6, 6, 7, 7, 8]),
+      "powder_t2": choose([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+      "bbc_seed": 1 + choose([0, 0, 0, 0, 0, 1]),
+      "hvv_seed": 1 + choose([0, 0, 0, 0, 0, 1]),
+      "cyl_seed": 1 + choose([0, 0, 0, 0, 0, 1]),
+      "bbc_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
+      "hvv_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
+      "cyl_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
     });
   }
+
+  const powder_status = (kind, time_m, xp_m) => {
+    const ms = 1000 * (50 + Math.random() * 30);
+    return { kind, xp_multiplier: 2 * xp_m, tt_expire: Math.floor(ms * time_m) };
+  }
+  if (item == "powder_t1") stead.ephemeral_statuses.push(powder_status(item, 1   ,  1  ));
+  if (item == "powder_t2") stead.ephemeral_statuses.push(powder_status(item, 1.2 ,  8.5));
+  if (item == "powder_t3") stead.ephemeral_statuses.push(powder_status(item, 1.35, 75  ));
+
+  if (item == "land_deed")
+    stead.plants.push({
+      kind: "dirt",
+      xp: 0,
+    });
 });
 
 app.post('/craft', (req, res) => {
