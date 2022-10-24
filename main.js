@@ -365,6 +365,8 @@ app.post('/useitem', auth(), (req, res) => {
       kind: "dirt",
       xp: 0,
     });
+
+  res.json({ ok: true });
 });
 
 app.post('/craft', auth(), (req, res) => {
