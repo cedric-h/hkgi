@@ -1,9 +1,46 @@
 import express from 'express'
 import cors from 'cors'
+import bcrypt from "bcrypt"
 const app = express();
 const port = 3014;
 
 app.use(cors());
+
+const auth = (options) => {
+  const requirePassword = options?.requirePassword == false ? false : true
+
+  return async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+
+    if(!authHeader || !authHeader.startsWith("Basic ")) {
+      return res.json({
+        ok: false,
+        msg: "missing authorization header"
+      });
+    }
+
+    const [username, password] = Buffer.from(authHeader.replace("Basic ", ""), "base64").toString().split(":");
+
+    if(!users[username]) {
+      return res.json({
+        ok: false,
+        msg: "user doesn't exist"
+      });
+    }
+
+    if(requirePassword && !(await bcrypt.compare(password, users[username].passwordHash))) {
+      return res.json({
+        ok: false,
+        msg: "wrong password"
+      });
+    }
+
+    req.user = username;
+    req.stead = users[username].stead
+
+    next();
+  }
+}
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
@@ -71,50 +108,89 @@ const plantXpMultiplier = (stead, plant) => {
 };
 
 
-const stead = {
-  ephemeral_statuses: [],
-  plants: [
-    {
-      kind: "dirt",
-      xp: 0,
-    },
-    {
-      kind: "bbc",
-      xp: 0,
+const users = {
+  cjdenio: {
+    passwordHash: "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
+    stead: {
+      ephemeral_statuses: [],
+      plants: [
+        {
+          kind: "dirt",
+          id: 0,
+          xp: 0,
+        },
+        {
+          kind: "dirt",
+          id: 0,
+          xp: 0,
+        },
+        {
+          kind: "bbc",
+          id: 1,
+          xp: 0,
+        }
+      ],
+      inv: {
+        "nest_egg": 1,
+        "bbc_seed": 1,
+        "hvv_seed": 1,
+        "cyl_seed": 1,
+      }
     }
-  ],
-  inv: {
-    "cyl_item": 1,
-    "nest_egg": 1,
-    "bbc_seed": 1,
-    "hvv_seed": 1,
-    "cyl_seed": 1,
+  },
+  ced: {
+    passwordHash: "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
+    stead: {
+      ephemeral_statuses: [],
+      plants: [
+        {
+          kind: "dirt",
+          id: 0,
+          xp: 0,
+        },
+        {
+          kind: "bbc",
+          id: 1,
+          xp: 0,
+        }
+      ],
+      inv: {
+        "nest_egg": 1,
+        "bbc_seed": 1,
+        "hvv_seed": 1,
+        "cyl_seed": 1,
+      }
+    }
   }
 };
+
 const SECS_PER_TICK = 0.5;
 setInterval(() => {
-  stead.ephemeral_statuses = stead.ephemeral_statuses.filter(status => {
-    status.tt_expire -= SECS_PER_TICK * 1000;
+  for(const user in users) {
+    const stead = users[user].stead;
+    stead.ephemeral_statuses = stead.ephemeral_statuses.filter(status => {
+      status.tt_expire -= SECS_PER_TICK * 1000;
 
-    return (status.tt_expire > 0);
-  });
+      return (status.tt_expire > 0);
+    });
 
-  for (const plant of stead.plants) {
-    if (plant.kind == "dirt") continue;
+    for (const plant of stead.plants) {
+      if (plant.kind == "dirt") continue;
 
-    let xp_multiplier = plantXpMultiplier(stead, plant);
+      let xp_multiplier = plantXpMultiplier(stead, plant);
 
-    /* I don't trust this logic to work with multiplier > 1 */
-    for (let i = xp_multiplier; i > 0; i--) {
-      const mult = Math.min(i, 1.0);
+      /* I don't trust this logic to work with multiplier > 1 */
+      for (let i = xp_multiplier; i > 0; i--) {
+        const mult = Math.min(i, 1.0);
 
-      const xp_per_tick = XP_PER_SEC * SECS_PER_TICK;
-      const xppy = xpPerYield(plant.xp);
+        const xp_per_tick = XP_PER_SEC * SECS_PER_TICK;
+        const xppy = xpPerYield(plant.xp);
 
-      plant.xp += xp_per_tick * mult;
-      const xp_since_yield = plant.xp % xppy;
-      if (xp_since_yield <= xp_per_tick)
-        giveItem(stead, { [plant.kind + "_essence"]: 1 });
+        plant.xp += xp_per_tick * mult;
+        const xp_since_yield = plant.xp % xppy;
+        if (xp_since_yield <= xp_per_tick)
+          giveItem(stead, { [plant.kind + "_essence"]: 1 });
+      }
     }
   }
 }, SECS_PER_TICK*1000);
@@ -127,6 +203,16 @@ const serializeStead = stead => {
     const xppy = xpPerYield(xp);
     const xpm = plantXpMultiplier(stead, plant);
     return {
+      statuses: plantStatuses(stead, plant).map(status => {
+        const ret = {};
+        ret.kind = status.kind;
+        ret.xp_multiplier = status.xp_multiplier;
+        if (status.tt_expire) {
+          ret.expire_prog = status.tt_expire / status.tt_expire_max;
+          ret.tt_expire = status.tt_expire;
+        }
+        return ret;
+      }),
       kind,
       lvl,
       tt_yield:   (xppy - (xp%xppy)) / XP_PER_SEC * 1000 / xpm,
@@ -142,8 +228,8 @@ const serializeStead = stead => {
   };
 };
 
-app.get('/getstead', (req, res) => {
- return res.json(serializeStead(stead));
+app.get('/getstead', auth({ requirePassword: false }), (req, res) => {
+ return res.json(serializeStead(req.stead));
 });
 
 const manifest = {
@@ -238,12 +324,13 @@ app.get('/manifest', (req, res) => {
 });
 
 app.use(express.json());
-app.post('/useitem', (req, res) => {
+app.post('/useitem', auth(), (req, res) => {
+  const stead = users[req.user].stead;
+
   const { item } = req.body;
   if (item == undefined)
     return res.json({ ok: false, msg: "learn how to use the api noob" });
 
-  console.log("usable: " + manifest.items[item].usable);
   if (!manifest.items[item].usable)
     return res.json({ ok: false, msg: "that's not an item you can use!" });
 
@@ -266,7 +353,8 @@ app.post('/useitem', (req, res) => {
 
   const powder_status = (kind, time_m, xp_m) => {
     const ms = 1000 * (50 + Math.random() * 30);
-    return { kind, xp_multiplier: 2 * xp_m, tt_expire: Math.floor(ms * time_m) };
+    const tt_expire = Math.floor(ms * time_m);
+    return { kind, xp_multiplier: 2 * xp_m, tt_expire, tt_expire_max: tt_expire };
   }
   if (item == "powder_t1") stead.ephemeral_statuses.push(powder_status(item, 1   ,  1  ));
   if (item == "powder_t2") stead.ephemeral_statuses.push(powder_status(item, 1.2 ,  8.5));
@@ -279,7 +367,9 @@ app.post('/useitem', (req, res) => {
     });
 });
 
-app.post('/craft', (req, res) => {
+app.post('/craft', auth(), (req, res) => {
+  const stead = users[req.user].stead;
+
   console.log("got request: " + JSON.stringify(req.body, undefined, 2));
 
   if (req.body.recipe_index == undefined || req.body.plot_index == undefined)
@@ -301,6 +391,10 @@ app.post('/craft', (req, res) => {
     giveItem(stead, { [recipe.make_item]: 1 });
 
   return res.json({ ok: true });
+});
+
+app.post('/testauth', auth(), (req, res) => {
+  res.json({ ok: true });
 });
 
 app.listen(port, () => {
