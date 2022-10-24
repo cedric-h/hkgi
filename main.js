@@ -1,9 +1,46 @@
 import express from 'express'
 import cors from 'cors'
+import bcrypt from "bcrypt"
 const app = express();
 const port = 3014;
 
 app.use(cors());
+
+const auth = (options) => {
+  const requirePassword = options?.requirePassword == false ? false : true
+
+  return async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+
+    if(!authHeader || !authHeader.startsWith("Basic ")) {
+      return res.json({
+        ok: false,
+        msg: "missing authorization header"
+      });
+    }
+
+    const [username, password] = Buffer.from(authHeader.replace("Basic ", ""), "base64").toString().split(":");
+
+    if(!users[username]) {
+      return res.json({
+        ok: false,
+        msg: "user doesn't exist"
+      });
+    }
+
+    if(requirePassword && !(await bcrypt.compare(password, users[username].passwordHash))) {
+      return res.json({
+        ok: false,
+        msg: "wrong password"
+      });
+    }
+
+    req.user = username;
+    req.stead = users[username].stead
+
+    next();
+  }
+}
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
@@ -47,39 +84,74 @@ const giveItem = (stead, items) => {
   }
 };
 
-
-const stead = {
-  plants: [
-    {
-      kind: "dirt",
-      id: 0,
-      xp: 0,
-    },
-    {
-      kind: "bbc",
-      id: 1,
-      xp: 0,
+const users = {
+  cjdenio: {
+    passwordHash: "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
+    stead: {
+      plants: [
+        {
+          kind: "dirt",
+          id: 0,
+          xp: 0,
+        },
+        {
+          kind: "dirt",
+          id: 0,
+          xp: 0,
+        },
+        {
+          kind: "bbc",
+          id: 1,
+          xp: 0,
+        }
+      ],
+      inv: {
+        "nest_egg": 1,
+        "bbc_seed": 1,
+        "hvv_seed": 1,
+        "cyl_seed": 1,
+      }
     }
-  ],
-  inv: {
-    "nest_egg": 1,
-    "bbc_seed": 1,
-    "hvv_seed": 1,
-    "cyl_seed": 1,
+  },
+  ced: {
+    passwordHash: "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
+    stead: {
+      plants: [
+        {
+          kind: "dirt",
+          id: 0,
+          xp: 0,
+        },
+        {
+          kind: "bbc",
+          id: 1,
+          xp: 0,
+        }
+      ],
+      inv: {
+        "nest_egg": 1,
+        "bbc_seed": 1,
+        "hvv_seed": 1,
+        "cyl_seed": 1,
+      }
+    }
   }
-};
+}
+
 const SECS_PER_TICK = 0.5;
 setInterval(() => {
-  for (const plant of stead.plants) {
-    if (plant.kind == "dirt") continue;
+  for(const user in users) {
+    for (const plant of users[user].stead.plants) {
+      if (plant.kind == "dirt") continue;
 
-    const xp_per_tick = XP_PER_SEC * SECS_PER_TICK;
-    const xppy = xpPerYield(plant.xp);
+      const xp_per_tick = XP_PER_SEC * SECS_PER_TICK;
+      const xppy = xpPerYield(plant.xp);
 
-    plant.xp += xp_per_tick;
-    const xp_since_yield = plant.xp % xppy;
-    if (xp_since_yield <= xp_per_tick)
-      giveItem(stead, { [plant.kind + "_essence"]: 1 });
+      plant.xp += xp_per_tick;
+      const xp_since_yield = plant.xp % xppy;
+      if (xp_since_yield <= xp_per_tick)
+        giveItem(users[user].stead, { [plant.kind + "_essence"]: 1 });
+    }
   }
 }, SECS_PER_TICK*1000);
 
@@ -102,8 +174,8 @@ const serializeStead = stead => {
   };
 };
 
-app.get('/getstead', (req, res) => {
- return res.json(serializeStead(stead));
+app.get('/getstead', auth({ requirePassword: false }), (req, res) => {
+ return res.json(serializeStead(req.stead));
 });
 
 const manifest = {
@@ -198,7 +270,9 @@ app.get('/manifest', (req, res) => {
 });
 
 app.use(express.json());
-app.post('/useitem', (req, res) => {
+app.post('/useitem', auth(), (req, res) => {
+  const stead = users[req.user].stead;
+
   const { item } = req.body;
   if (item == undefined)
 
@@ -219,7 +293,9 @@ app.post('/useitem', (req, res) => {
   }
 });
 
-app.post('/craft', (req, res) => {
+app.post('/craft', auth(), (req, res) => {
+  const stead = users[req.user].stead;
+
   console.log("got request: " + JSON.stringify(req.body, undefined, 2));
 
   if (req.body.recipe_index == undefined || req.body.plot_index == undefined)
