@@ -319,6 +319,10 @@ app.post('/craft', auth(), (req, res) => {
   return res.json({ ok: true });
 });
 
+app.post('/testauth', auth(), (req, res) => {
+  res.json({ ok: true });
+});
+
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
 })
