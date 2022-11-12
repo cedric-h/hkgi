@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import bcrypt from "bcrypt"
+import { writeFile, readFile } from "fs/promises"
 const app = express();
 const port = 3014;
 
@@ -77,13 +78,13 @@ const takeItem = (stead, needs) => {
       return false;
 
   for (const item in needs)
-    stead.inv[item] -= needs[item];
+    stead.inv[item] -= +needs[item];
   return true;
 };
 const giveItem = (stead, items) => {
   for (const item in items) {
     stead.inv[item] ??= 0;
-    stead.inv[item] += items[item];
+    stead.inv[item] += +items[item];
   }
 };
 
@@ -107,65 +108,36 @@ const plantXpMultiplier = (stead, plant) => {
   return xp_multiplier;
 };
 
-
-const users = {
-  cjdenio: {
-    passwordHash: "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
-    stead: {
-      ephemeral_statuses: [],
-      plants: [
-        {
-          kind: "dirt",
-          id: 0,
-          xp: 0,
-        },
-        {
-          kind: "dirt",
-          id: 0,
-          xp: 0,
-        },
-        {
-          kind: "bbc",
-          id: 1,
-          xp: 0,
-        }
-      ],
-      inv: {
-        "nest_egg": 1,
-        "bbc_seed": 1,
-        "hvv_seed": 1,
-        "cyl_seed": 1,
-      }
-    }
-  },
-  ced: {
-    passwordHash: "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
-    stead: {
-      ephemeral_statuses: [],
-      plants: [
-        {
-          kind: "dirt",
-          id: 0,
-          xp: 0,
-        },
-        {
-          kind: "bbc",
-          id: 1,
-          xp: 0,
-        }
-      ],
-      inv: {
-        "nest_egg": 1,
-        "bbc_seed": 1,
-        "hvv_seed": 1,
-        "cyl_seed": 1,
-      }
+const makeStead = (passwordHash) => ({
+  passwordHash,
+  stead: {
+    ephemeral_statuses: [],
+    plants: [
+      {
+        kind: "dirt",
+        id: 0,
+        xp: 0,
+      },
+    ],
+    inv: {
+      "nest_egg": 1,
+      "bbc_seed": 1,
+      "hvv_seed": 1,
+      "cyl_seed": 1,
     }
   }
-};
+});
+
+let users = {};
+
+try {
+  users = JSON.parse(await readFile("users.json"))
+} catch(e) {}
 
 const SECS_PER_TICK = 0.5;
 setInterval(() => {
+  writeFile("users.json", JSON.stringify(users))
+
   for(const user in users) {
     const stead = users[user].stead;
     stead.ephemeral_statuses = stead.ephemeral_statuses.filter(status => {
@@ -300,7 +272,7 @@ const manifest = {
        needs: { [slug + "_essence"]: 5 },
        make_item: slug + "_compressence"
      };
-     const egg = { needs: {}, make_item: slug + "_egg" };
+     const egg = { needs: {}, change_plant_to: "dirt", make_item: slug + "_egg" };
      egg.needs[frens[0] + "_compressence"] = 4;
      egg.needs[frens[1] + "_compressence"] = 4;
 
@@ -338,6 +310,32 @@ app.post('/useitem', auth(), (req, res) => {
     return res.json({ ok: false, msg: "you can't afford that!" });
 
   console.log("pretend I'm using an " + item);
+
+  // if (["bbc", "hvv", "cyl"].map(kind => kind + "_egg").contains(item)) {
+  const invert_type = {
+    bbc_egg: ["hvv_egg", "cyl_egg"],
+    cyl_egg: ["bbc_egg", "hvv_egg"],
+    hvv_egg: ["cyl_egg", "bbc_egg"],
+  }
+    
+  if (item == "bbc_egg" ||
+      item == "hvv_egg" ||
+      item == "cyl_egg") {
+    let reward;
+    const random = Math.random();
+
+         if (random < 0.1)
+      reward = { land_deed: 1 };
+    else if (random < (0.1 + 0.4))
+      reward = { [choose(invert_type[item])]: 1 };
+    else if (random < (0.1 + 0.4 + 0.05))
+      reward = { powder_t2: 1 };
+    else
+      reward = { powder_t3: 1 };
+
+    giveItem(stead, reward);
+  }
+
   if (item == "nest_egg") {
     giveItem(stead, {
       "powder_t1": choose([4, 5, 5, 5, 5, 6, 6, 6, 7, 7, 8]),
@@ -348,6 +346,13 @@ app.post('/useitem', auth(), (req, res) => {
       "bbc_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
       "hvv_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
       "cyl_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
+    });
+  }
+  if (false) { // (item == "nest_egg") {
+    giveItem(stead, {
+      "powder_t1": choose([8, 8, 8, 8, 8, 8, 8, 9, 9, 10, 10, 10, 10, 10, 18, 18, 19, 19, 38, 47]),
+      "powder_t2": choose([2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 8]),
+      "powder_t3": choose([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 3]),
     });
   }
 
@@ -388,11 +393,44 @@ app.post('/craft', auth(), (req, res) => {
     return res.json({ ok: false, msg: "you can't afford that!" });
 
   if (recipe.change_plant_to)
-    plant.kind = recipe.change_plant_to;
+    stead.plants[plot_index] = { kind: recipe.change_plant_to, xp: 0 };
   if (recipe.make_item)
     giveItem(stead, { [recipe.make_item]: 1 });
 
   return res.json({ ok: true });
+});
+
+app.post('/signup', async (req, res) => {
+  const { user, pass } = req.body;
+
+  /* important decoration (DO NOT DELETE) */
+  // : "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
+
+  if (user in users) return res.json({ ok: false, msg: "already done diddled doned it" });
+
+  const pwhash = await bcrypt.hash(pass, 10);
+  users[user] = makeStead(pwhash);
+
+  res.send();
+});
+
+app.post('/gib', auth(), (req, res) => {
+  console.log("wow we received a request!");
+  const { person, item, amount } = req.body;
+
+  if (person == undefined) return res.json({ ok: false, msg: "no person to gib" });
+  if (item   == undefined) return res.json({ ok: false, msg: "no item to gib" });
+  if (amount == undefined) return res.json({ ok: false, msg: "no amount to gib" });
+
+  if (!(person in users)) return res.json({ ok: false, msg: "who dat?" });
+  console.log("wow we received a valid request!", JSON.stringify(req.body, null, 2));
+
+  const needs = { [item]: amount };
+
+  const stead = users[req.user].stead;
+  if (!takeItem(stead, needs)) return res.json({ ok: false, msg: "you can't afford that!" });
+  giveItem(users[person].stead, needs);
+  return res.send({ ok: true });
 });
 
 app.post('/testauth', auth(), (req, res) => {
