@@ -68,7 +68,7 @@ const lvlFromXp = xp => {
 };
 const xpPerYield = xp => {
   const { lvl } = lvlFromXp(xp);
-  return 300*(1 - (lvl / (lvls.length + 2)));
+  return 900*(1 - (lvl / (lvls.length + 2)));
 };
 
 
@@ -173,7 +173,7 @@ setInterval(() => {
         if (xp_since_yield <= xp_per_tick) {
           giveItem(stead, { [plant.kind + "_essence"]: 1 });
 
-          if (Math.random() < 0.01) {
+          if (Math.random() < 0.004) {
             const { lvl } = lvlFromXp(plant.xp);
             if (lvl > 5) giveItem(stead, { [plant.kind + "_bag_t1"]: 1 });
           }
@@ -187,7 +187,7 @@ setInterval(() => {
 const serializeStead = stead => {
   const sPlant = (plant) => {
     const { kind, xp } = plant;
-    if (kind == "dirt") return { kind: "dirt" };
+    if (kind == "dirt") return { kind: "dirt", lvl: 0 };
     const { lvl, xp_to_go } = lvlFromXp(xp);
     const xppy = xpPerYield(xp);
     const xpm = plantXpMultiplier(stead, plant);
@@ -305,7 +305,7 @@ const manifest = {
    "bag_egg_t2":        { name: "Boxlet Egg",
                           usable: true,
                           desc: "Boons birthed of a Boxlet! Bountiful!" },
-   "bag_egg_t2":        { name: "Megabox Egg",
+   "bag_egg_t3":        { name: "Megabox Egg",
                           usable: true,
                           desc: "The best boons born by a winged vessel!" },
  },
@@ -318,18 +318,20 @@ const manifest = {
  plant_recipes: (() => {
    const trioPlant = (slug, frens) => {
      const compressence = {
+       lvl: 0,
        needs: { [slug + "_essence"]: 5 },
        make_item: slug + "_compressence"
      };
-     const egg = { needs: {}, change_plant_to: "dirt", make_item: slug + "_egg" };
+     const egg = { lvl: 0, needs: {}, change_plant_to: "dirt", make_item: slug + "_egg" };
      egg.needs[frens[0] + "_compressence"] = 4;
      egg.needs[frens[1] + "_compressence"] = 4;
 
      const bag_t1 = {
+       lvl: 14,
        needs: { [slug + "_compressence"]: 10, [slug + "_bag_t1"]: 3 },
        make_item: {
          one_of: [
-           [0.40, "_bag_egg_t1"],
+           [0.40, "bag_egg_t1"],
            [0.18, frens[0] + "_bag_t2"],
            [0.18, frens[1] + "_bag_t2"],
            [0.12, frens[0] + "_bag_t1"],
@@ -339,10 +341,11 @@ const manifest = {
      };
 
      const bag_t2 = {
+       lvl: 17,
        needs: { [slug + "_compressence"]: 50, [slug + "_bag_t2"]: 2 },
        make_item: {
          one_of: [
-           [0.32, "_bag_egg_t2"],
+           [0.32, "bag_egg_t2"],
            [0.15, frens[0] + "_bag_t3"],
            [0.15, frens[1] + "_bag_t3"],
            [0.19, frens[0] + "_bag_t2"],
@@ -352,23 +355,24 @@ const manifest = {
      };
 
      const bag_t3 = {
+       lvl: 21,
        needs: { [slug + "_compressence"]: 200, [slug + "_bag_t3"]: 1 },
        make_item: {
          one_of: [
-           [0.16, "_bag_egg_t3"],
+           [0.16, "bag_egg_t3"],
            [0.42, frens[0] + "_bag_t3"],
            [0.42, frens[1] + "_bag_t3"],
          ]
        }
      };
 
-     return [bag_t1, bag_t2, bag_t3, compressence, egg];
+     return [compressence, egg, bag_t1, bag_t2, bag_t3];
    };
    return {
      "dirt": [
-       { needs: { "bbc_seed": 1 }, change_plant_to: "bbc" },
-       { needs: { "hvv_seed": 1 }, change_plant_to: "hvv" },
-       { needs: { "cyl_seed": 1 }, change_plant_to: "cyl" },
+       { lvl: 0, needs: { "bbc_seed": 1 }, change_plant_to: "bbc" },
+       { lvl: 0, needs: { "hvv_seed": 1 }, change_plant_to: "hvv" },
+       { lvl: 0, needs: { "cyl_seed": 1 }, change_plant_to: "cyl" },
      ],
      bbc: trioPlant("bbc", [       "cyl", "hvv"]),
      cyl: trioPlant("cyl", ["bbc",        "hvv"]),
@@ -398,16 +402,34 @@ app.post('/useitem', auth(), (req, res) => {
   console.log("pretend I'm using an " + item);
   activityPush('useitem', { who: req.user, what: item });
 
-  // if (["bbc", "hvv", "cyl"].map(kind => kind + "_egg").contains(item)) {
-  const invert_type = {
-    bbc_egg: ["hvv_item", "cyl_item"],
-    cyl_egg: ["bbc_item", "hvv_item"],
-    hvv_egg: ["cyl_item", "bbc_item"],
+  const megaboxDrop = () => ({
+    [choose([ "bbc_seed", "hvv_seed", "cyl_seed" ])]:
+      choose([ 33, 33, 33, 33, 33, 
+               38, 38, 38, 38, 38, 
+               45, 45, 45, 45, 45, 
+                               87.0 ]),
+    powder_t2: choose([3, 3, 3, 3, 3, 3, 3, 5, 5, 5, 5, 8]),
+    powder_t3: choose([0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 3])
+  });
+  const scaleDrop = (drop, scale) => {
+    for (const key in drop)
+      drop[key] = Math.floor(drop[key] * scale);
+    return drop;
   }
-    
+
+  if (item == "bag_egg_t1") giveItem(stead, scaleDrop(megaboxDrop(), 0.2));
+  if (item == "bag_egg_t2") giveItem(stead, scaleDrop(megaboxDrop(), 0.6));
+  if (item == "bag_egg_t3") giveItem(stead,           megaboxDrop()      );
+
   if (item == "bbc_egg" ||
       item == "hvv_egg" ||
       item == "cyl_egg") {
+    const invert_type = {
+      bbc_egg: ["hvv_item", "cyl_item"],
+      cyl_egg: ["bbc_item", "hvv_item"],
+      hvv_egg: ["cyl_item", "bbc_item"],
+    }
+    
     let reward;
     const random = Math.random();
 
@@ -457,15 +479,15 @@ app.post('/useitem', auth(), (req, res) => {
 app.post('/craft', auth(), (req, res) => {
   const stead = users[req.user].stead;
 
-  console.log("got request: " + JSON.stringify(req.body, undefined, 2));
-
   if (req.body.recipe_index == undefined || req.body.plot_index == undefined)
     return res.json({ ok: false, msg: "learn how to use the api noob" });
 
   const { recipe_index, plot_index } = req.body;
   const plant = stead.plants[plot_index];
   const recipe = manifest.plant_recipes[plant.kind][recipe_index];
-  console.log(recipe);
+
+  if (!(lvlFromXp(plant.xp).lvl >= recipe.lvl))
+    return res.json({ ok: false, msg: "come back when you're older, plant!" });
 
   /* TODO: make sure you actually have the necessary items and fail gracefully */
 
@@ -500,18 +522,17 @@ app.post('/signup', async (req, res) => {
   /* important decoration (DO NOT DELETE) */
   // : "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
 
-  if (user in users) return res.json({ ok: false, msg: "already done diddled doned it" });
+  if (user in users) return res.json({ ok: false, msg: "already done diddly doned it" });
 
   const pwhash = await bcrypt.hash(pass, 10);
   users[user] = makeStead(pwhash);
 
   activityPush('signup', { who: user });
 
-  res.send();
+  res.json({ ok: true });
 });
 
 app.post('/gib', auth(), (req, res) => {
-  console.log("wow we received a request!");
   const { person, item, amount } = req.body;
 
   if (person == undefined) return res.json({ ok: false, msg: "no person to gib" });
@@ -519,7 +540,6 @@ app.post('/gib', auth(), (req, res) => {
   if (amount == undefined) return res.json({ ok: false, msg: "no amount to gib" });
 
   if (!(person in users)) return res.json({ ok: false, msg: "who dat?" });
-  console.log("wow we received a valid request!", JSON.stringify(req.body, null, 2));
 
   const needs = { [item]: amount };
 
@@ -536,5 +556,5 @@ app.post('/testauth', auth(), (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
+  console.log(`hkgi-ing away on port ${port}`)
 })
