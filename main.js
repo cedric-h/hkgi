@@ -134,6 +134,16 @@ try {
   users = JSON.parse(await readFile("users.json"))
 } catch(e) {}
 
+let activity = [];
+const activityPush = (kind, obj) => {
+  console.log(kind, obj);
+  activity.push({ ts: Date.now(), kind, ...obj });
+};
+const activityPrune = () => {
+  const fivemin = 1000 * 60 * 5;
+  activity = activity.filter(t => (Date.now() - t.ts) < fivemin);
+};
+
 const SECS_PER_TICK = 0.5;
 setInterval(() => {
   writeFile("users.json", JSON.stringify(users))
@@ -160,11 +170,18 @@ setInterval(() => {
 
         plant.xp += xp_per_tick * mult;
         const xp_since_yield = plant.xp % xppy;
-        if (xp_since_yield <= xp_per_tick)
+        if (xp_since_yield <= xp_per_tick) {
           giveItem(stead, { [plant.kind + "_essence"]: 1 });
+
+          if (Math.random() < 0.01) {
+            const { lvl } = lvlFromXp(plant.xp);
+            if (lvl > 5) giveItem(stead, { [plant.kind + "_bag_t1"]: 1 });
+          }
+        }
       }
     }
   }
+  activityPrune();
 }, SECS_PER_TICK*1000);
 
 const serializeStead = stead => {
@@ -203,6 +220,8 @@ const serializeStead = stead => {
 app.get('/getstead', auth({ requirePassword: false }), (req, res) => {
  return res.json(serializeStead(req.stead));
 });
+app.get('/activity', (req, res) => res.json(activity));
+app.get('/users', (req, res) => res.json(Object.keys(users)));
 
 const manifest = {
   items: {
@@ -259,6 +278,36 @@ const manifest = {
     "land_deed":        { name: "Land Deed",
                           usable: true,
                           desc: "Lets you grow more things! Basically dirt paper!" },
+   
+   /* bagling update */
+   "cyl_bag_t1":        { name: "Crystalline Buzzwing Bagling",
+                          desc: "Bag. Orange. Small. Flies. Seems a bit seedy." },
+   "hvv_bag_t1":        { name: "Spirited Buzzwing Bagling",
+                          desc: "Bag. Green. Small. Flies. Seems a bit seedy." },
+   "bbc_bag_t1":        { name: "Doughy Buzzwing Bagling",
+                          desc: "Bag. Brown. Small. Flies. Seems a bit seedy." },
+   "cyl_bag_t2":        { name: "Crystalline Buzzwing Boxlet",
+                          desc: "Box. Orange. Small. Flies. Seems seedy." },
+   "hvv_bag_t2":        { name: "Spirited Buzzwing Boxlet",
+                          desc: "Box. Green. Small. Flies. Seems seedy." },
+   "bbc_bag_t2":        { name: "Doughy Buzzwing Boxlet",
+                          desc: "Box. Brown. Small. Flies. Seems seedy." },
+   "cyl_bag_t3":        { name: "Crystalline Buzzwing Megabox",
+                          desc: "Chest. Orange. Winged. Too fat to fly. Quite seedy." },
+   "hvv_bag_t3":        { name: "Spirited Buzzwing Megabox",
+                          desc: "Chest. Green. Winged. Too fat to fly. Quite seedy." },
+   "bbc_bag_t3":        { name: "Doughy Buzzwing Megabox",
+                          desc: "Chest. Brown. Winged. Too fat to fly. Quite seedy." },
+
+   "bag_egg_t1":        { name: "Bagling Egg",
+                          usable: true,
+                          desc: "Boons birthed of a Bagling!" },
+   "bag_egg_t2":        { name: "Boxlet Egg",
+                          usable: true,
+                          desc: "Boons birthed of a Boxlet! Bountiful!" },
+   "bag_egg_t2":        { name: "Megabox Egg",
+                          usable: true,
+                          desc: "The best boons born by a winged vessel!" },
  },
  plant_titles: {
    "dirt": "Dirt",
@@ -276,7 +325,44 @@ const manifest = {
      egg.needs[frens[0] + "_compressence"] = 4;
      egg.needs[frens[1] + "_compressence"] = 4;
 
-     return [compressence, egg];
+     const bag_t1 = {
+       needs: { [slug + "_compressence"]: 10, [slug + "_bag_t1"]: 3 },
+       make_item: {
+         one_of: [
+           [0.40, "_bag_egg_t1"],
+           [0.18, frens[0] + "_bag_t2"],
+           [0.18, frens[1] + "_bag_t2"],
+           [0.12, frens[0] + "_bag_t1"],
+           [0.12, frens[1] + "_bag_t1"],
+         ]
+       }
+     };
+
+     const bag_t2 = {
+       needs: { [slug + "_compressence"]: 50, [slug + "_bag_t2"]: 2 },
+       make_item: {
+         one_of: [
+           [0.32, "_bag_egg_t2"],
+           [0.15, frens[0] + "_bag_t3"],
+           [0.15, frens[1] + "_bag_t3"],
+           [0.19, frens[0] + "_bag_t2"],
+           [0.19, frens[1] + "_bag_t2"],
+         ]
+       }
+     };
+
+     const bag_t3 = {
+       needs: { [slug + "_compressence"]: 200, [slug + "_bag_t3"]: 1 },
+       make_item: {
+         one_of: [
+           [0.16, "_bag_egg_t3"],
+           [0.42, frens[0] + "_bag_t3"],
+           [0.42, frens[1] + "_bag_t3"],
+         ]
+       }
+     };
+
+     return [bag_t1, bag_t2, bag_t3, compressence, egg];
    };
    return {
      "dirt": [
@@ -310,12 +396,13 @@ app.post('/useitem', auth(), (req, res) => {
     return res.json({ ok: false, msg: "you can't afford that!" });
 
   console.log("pretend I'm using an " + item);
+  activityPush('useitem', { who: req.user, what: item });
 
   // if (["bbc", "hvv", "cyl"].map(kind => kind + "_egg").contains(item)) {
   const invert_type = {
-    bbc_egg: ["hvv_egg", "cyl_egg"],
-    cyl_egg: ["bbc_egg", "hvv_egg"],
-    hvv_egg: ["cyl_egg", "bbc_egg"],
+    bbc_egg: ["hvv_item", "cyl_item"],
+    cyl_egg: ["bbc_item", "hvv_item"],
+    hvv_egg: ["cyl_item", "bbc_item"],
   }
     
   if (item == "bbc_egg" ||
@@ -329,9 +416,9 @@ app.post('/useitem', auth(), (req, res) => {
     else if (random < (0.1 + 0.4))
       reward = { [choose(invert_type[item])]: 1 };
     else if (random < (0.1 + 0.4 + 0.05))
-      reward = { powder_t2: 1 };
-    else
       reward = { powder_t3: 1 };
+    else
+      reward = { powder_t2: 1 };
 
     giveItem(stead, reward);
   }
@@ -340,19 +427,12 @@ app.post('/useitem', auth(), (req, res) => {
     giveItem(stead, {
       "powder_t1": choose([4, 5, 5, 5, 5, 6, 6, 6, 7, 7, 8]),
       "powder_t2": choose([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-      "bbc_seed": 1 + choose([0, 0, 0, 0, 0, 1]),
-      "hvv_seed": 1 + choose([0, 0, 0, 0, 0, 1]),
-      "cyl_seed": 1 + choose([0, 0, 0, 0, 0, 1]),
+      "bbc_seed": 4 + choose([0, 0, 0, 0, 0, 1]),
+      "hvv_seed": 4 + choose([0, 0, 0, 0, 0, 1]),
+      "cyl_seed": 4 + choose([0, 0, 0, 0, 0, 1]),
       "bbc_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
       "hvv_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
       "cyl_essence": 5 + choose([0, 0, 0, 1, 1, 2]),
-    });
-  }
-  if (false) { // (item == "nest_egg") {
-    giveItem(stead, {
-      "powder_t1": choose([8, 8, 8, 8, 8, 8, 8, 9, 9, 10, 10, 10, 10, 10, 18, 18, 19, 19, 38, 47]),
-      "powder_t2": choose([2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 8]),
-      "powder_t3": choose([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 3]),
     });
   }
 
@@ -392,10 +472,24 @@ app.post('/craft', auth(), (req, res) => {
   if (!takeItem(stead, recipe.needs))
     return res.json({ ok: false, msg: "you can't afford that!" });
 
+  activityPush('craft', { who: req.user, what: { recipe_index, plot_index } });
+
   if (recipe.change_plant_to)
     stead.plants[plot_index] = { kind: recipe.change_plant_to, xp: 0 };
-  if (recipe.make_item)
-    giveItem(stead, { [recipe.make_item]: 1 });
+  if (recipe.make_item) {
+    if (typeof recipe.make_item == "string")
+      giveItem(stead, { [recipe.make_item]: 1 });
+    else {
+      const one_of = [...recipe.make_item.one_of];
+      let r = Math.random();
+      let chance, item;
+      do {
+        [chance, item] = one_of.shift();
+        r -= chance;
+      } while (r > 0);
+      giveItem(stead, { [item]: 1 });
+    }
+  }
 
   return res.json({ ok: true });
 });
@@ -410,6 +504,8 @@ app.post('/signup', async (req, res) => {
 
   const pwhash = await bcrypt.hash(pass, 10);
   users[user] = makeStead(pwhash);
+
+  activityPush('signup', { who: user });
 
   res.send();
 });
@@ -430,6 +526,8 @@ app.post('/gib', auth(), (req, res) => {
   const stead = users[req.user].stead;
   if (!takeItem(stead, needs)) return res.json({ ok: false, msg: "you can't afford that!" });
   giveItem(users[person].stead, needs);
+
+  activityPush('gib', { from: req.user, to: person, item, amount });
   return res.send({ ok: true });
 });
 
