@@ -416,14 +416,14 @@ app.post('/signup', async (req, res) => {
 
 app.post('/gib', auth(), (req, res) => {
   console.log("wow we received a request!");
-  const { person, item, amount } = req.body;
+  let { person, item, amount } = req.body;
 
   if (person == undefined) return res.json({ ok: false, msg: "no person to gib" });
   if (item   == undefined) return res.json({ ok: false, msg: "no item to gib" });
   if (amount == undefined) return res.json({ ok: false, msg: "no amount to gib" });
   
   if (amount <= 0) return res.json({ ok: false, msg: "amount to give can not be less or equal to 0" });
-  amount = Math.floor(amount); // In Case Someone try to use my own trick with decimal number ;) - DevIos
+  amount = Math.floor(amount); //In Case Someone try to use my own trick with decimal number ;) - DevIos
 
   if (!(person in users)) return res.json({ ok: false, msg: "who dat?" });
   console.log("wow we received a valid request!", JSON.stringify(req.body, null, 2));
