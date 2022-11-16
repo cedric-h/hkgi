@@ -188,7 +188,7 @@ const deleteWebhook = (user, url) => {
 		return false;
 	}
 
-	const i = users[user].webhooks.indexOf(url);
+	const i = users[user].webhooks.indexOf(cleanUrl);
 	if (i == -1) return false;
 	users[user].webhooks.splice(i, 1);
 	return true;
@@ -639,7 +639,9 @@ app.post('/webhook/register', auth(), async (req, res) => {
 });
 
 app.delete('/webhook', auth(), (req, res) => {
-	const { user, url } = req;
+  const user = req.user;
+  const { url } = req.body;
+
 	if (url == undefined)
 		return res.json({ ok: false, msg: 'You must provide a "url" in the body' });
 
