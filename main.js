@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import bcrypt from "bcrypt"
 import { writeFile, readFile } from "fs/promises"
+import axios from 'axios';
 const app = express();
 const port = 3014;
 
@@ -125,7 +126,8 @@ const makeStead = (passwordHash) => ({
       "hvv_seed": 1,
       "cyl_seed": 1,
     }
-  }
+  },
+  webhooks: [],
 });
 
 let users = {};
@@ -136,12 +138,61 @@ try {
 
 let activity = [];
 const activityPush = (kind, obj) => {
-  console.log(kind, obj);
-  activity.push({ ts: Date.now(), kind, ...obj });
+	console.log(kind, obj);
+	const action = { ts: Date.now(), kind, ...obj };
+	activity.push(action);
+
+	// Send webhooks
+	for (const url of getWebhooks()) {
+		sendWebhook(url, action);
+	}
 };
 const activityPrune = () => {
   const fivemin = 1000 * 60 * 5;
   activity = activity.filter(t => (Date.now() - t.ts) < fivemin);
+};
+
+const registerWebhook = async (user, url) => {
+	let cleanUrl;
+	try {
+		cleanUrl = new URL(url).toString();
+	} catch (e) {
+		return false;
+	}
+
+	// Webhook already exists
+	if (getWebhooks().includes(cleanUrl)) return true;
+
+	// Verify webhook is valid
+	const ok = await sendWebhook(cleanUrl, {
+		message:
+			'This is a validation test for hkgi webhooks. This endpoint must return a 200 status code to be registered as a webhook url.',
+	});
+
+	if (!ok) return false;
+
+	// Register webhook
+	if (!users[user].webhooks) users[user].webhooks = [];
+	users[user].webhooks.push(cleanUrl);
+
+	return true;
+};
+const sendWebhook = async (url, data) => {
+	try {
+		console.log('sending webhook', url, data);
+		const resp = await axios.post(url, data);
+		const ok = resp.status >= 200 && resp.status < 300;
+		return ok;
+	} catch (e) {
+		console.log(e);
+		return false;
+	}
+};
+const getWebhooks = () => {
+	return Object.values(users)
+		.map((u) => u.webhooks)
+		.flat()
+		.filter((u) => u);
 };
 
 const SECS_PER_TICK = 0.5;
@@ -553,6 +604,22 @@ app.post('/gib', auth(), (req, res) => {
 
 app.post('/testauth', auth(), (req, res) => {
   res.json({ ok: true });
+});
+
+app.post('/webhook/register', auth(), async (req, res) => {
+	const { url } = req.body;
+	if (url == undefined)
+		return res.json({ ok: false, msg: 'You must provide a "url" in the body' });
+
+	const { user } = req;
+	const registered = await registerWebhook(user, url);
+	if (!registered)
+		return res.json({
+			ok: false,
+			msg: 'Webhook url is invalid. The endpoint must return a 200 status code when receiving a POST request to be registered as a webhook url.',
+		});
+
+	res.json({ ok: true });
 });
 
 app.listen(port, () => {
