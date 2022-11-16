@@ -460,6 +460,9 @@ app.post('/useitem', auth(), (req, res) => {
   if (item == undefined)
     return res.json({ ok: false, msg: "learn how to use the api noob" });
 
+  if (manifest.items[item] == undefined)
+    return res.json({ ok: false, msg: "no such item found" });
+
   if (!manifest.items[item].usable)
     return res.json({ ok: false, msg: "that's not an item you can use!" });
 
@@ -588,6 +591,8 @@ app.post('/signup', async (req, res) => {
 
   /* important decoration (DO NOT DELETE) */
   // : "$2b$10$9vl9sbBwTAus1hxbdYjsSeY.OsQFW.yX64kTeR1atekJiB89L1Yve",
+
+  if (user == "") return res.json({ ok: false, msg: "nah mate not having that username" });
 
   if (user in users) return res.json({ ok: false, msg: "already done diddly doned it" });
 
