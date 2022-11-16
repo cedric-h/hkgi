@@ -177,6 +177,23 @@ const registerWebhook = async (user, url) => {
 
 	return true;
 };
+
+const deleteWebhook = (user, url) => {
+	if (!users[user].webhooks) return false;
+
+	let cleanUrl;
+	try {
+		cleanUrl = new URL(url).toString();
+	} catch (e) {
+		return false;
+	}
+
+	const i = users[user].webhooks.indexOf(url);
+	if (i == -1) return false;
+	users[user].webhooks.splice(i, 1);
+	return true;
+};
+
 const sendWebhook = async (url, data) => {
 	try {
 		console.log('sending webhook', url, data);
@@ -184,7 +201,6 @@ const sendWebhook = async (url, data) => {
 		const ok = resp.status >= 200 && resp.status < 300;
 		return ok;
 	} catch (e) {
-		console.log(e);
 		return false;
 	}
 };
@@ -618,6 +634,18 @@ app.post('/webhook/register', auth(), async (req, res) => {
 			ok: false,
 			msg: 'Webhook url is invalid. The endpoint must return a 200 status code when receiving a POST request to be registered as a webhook url.',
 		});
+
+	res.json({ ok: true });
+});
+
+app.delete('/webhook', auth(), (req, res) => {
+	const { user, url } = req;
+	if (url == undefined)
+		return res.json({ ok: false, msg: 'You must provide a "url" in the body' });
+
+	const deleted = deleteWebhook(user, url);
+	if (!deleted)
+		return res.json({ ok: false, msg: 'That webhook url was not registered' });
 
 	res.json({ ok: true });
 });
