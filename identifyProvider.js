@@ -8,13 +8,15 @@ import auth from './authentication.js';
 // follows:
 // 1. 3rd party application POSTs to `/idp/verify/USERNAME` with an optional
 //    `webhookUrl` in the body. The response will be a Verification Request
-// 2. Via the Slack App, the User will recieve a message to verify the
+// 2. Via the Slack App, the User will receive a message to verify the
 //    Verification Request. Alternatively, they can also POST to
-//    `/idp/verificationAttemt/ID/verify` with the proper authentication header
-// 3. Once successfuly verified, the 3rd party application will recieve a POST
+//    `/idp/verificationAttempt/ID/verify` with the proper authentication
+//    header. Users can learn about this event by listening to the Activity
+//    webhook.
+// 3. Once successfuly verified, the 3rd party application will receive a POST
 //    to the `webhookUrl` (if provided in Step 1). The successful verification
 //    will also appear in the activity feed.
-// 4. (optional) If the 3rd party application did not recieve the webhook, they
+// 4. (optional) If the 3rd party application did not receive the webhook, they
 //    can GET `/idp/verificationAttempt/ID` to see if the verification was
 //    successful.
 
