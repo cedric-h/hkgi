@@ -3,46 +3,16 @@ import cors from 'cors'
 import bcrypt from "bcrypt"
 import { writeFile, readFile } from "fs/promises"
 import axios from 'axios';
+import auth from './authentication.js';
+import { idpRouter } from './identifyProvider.js';
 const app = express();
 const port = 3014;
+export const isDevelopment = process.env.NODE_ENV === 'development';
+export const DOMAIN = isDevelopment
+	? `localhost:${port}`
+	: 'misguided.enterprises/hkgi';
 
 app.use(cors());
-
-const auth = (options) => {
-  const requirePassword = options?.requirePassword == false ? false : true
-
-  return async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-
-    if(!authHeader || !authHeader.startsWith("Basic ")) {
-      return res.json({
-        ok: false,
-        msg: "missing authorization header"
-      });
-    }
-
-    const [username, password] = Buffer.from(authHeader.replace("Basic ", ""), "base64").toString().split(":");
-
-    if(!users[username]) {
-      return res.json({
-        ok: false,
-        msg: "user doesn't exist"
-      });
-    }
-
-    if(requirePassword && !(await bcrypt.compare(password, users[username].passwordHash))) {
-      return res.json({
-        ok: false,
-        msg: "wrong password"
-      });
-    }
-
-    req.user = username;
-    req.stead = users[username].stead
-
-    next();
-  }
-}
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
@@ -130,14 +100,14 @@ const makeStead = (passwordHash) => ({
   webhooks: [],
 });
 
-let users = {};
+export let users = {};
 
 try {
   users = JSON.parse(await readFile("users.json"))
 } catch(e) {}
 
 let activity = [];
-const activityPush = (kind, obj) => {
+export const activityPush = (kind, obj) => {
 	console.log(kind, obj);
 	const action = { ts: Date.now(), kind, ...obj };
 	activity.push(action);
@@ -194,7 +164,7 @@ const deleteWebhook = (user, url) => {
 	return true;
 };
 
-const sendWebhook = async (url, data) => {
+export const sendWebhook = async (url, data) => {
 	try {
 		console.log('sending webhook', url, data);
 		const resp = await axios.post(url, data);
@@ -656,6 +626,9 @@ app.delete('/webhook', auth(), (req, res) => {
 
 	res.json({ ok: true });
 });
+
+// Mount idP (Identity Provider) router
+app.use('/idp', idpRouter);
 
 app.listen(port, () => {
   console.log(`hkgi-ing away on port ${port}`)
