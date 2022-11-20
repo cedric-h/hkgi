@@ -42,14 +42,14 @@ const auth = (options) => {
 		}
 
 		if (!state.ok) {
-			if (options.callback) await options.callback(req, username, state);
+			if (options?.callback) await options.callback(req, username, state);
 			return res.json(state);
 		}
 
 		req.user = username;
 		req.stead = users[username].stead;
 
-		if (options.callback) await options.callback(req, username, state);
+		if (options?.callback) await options.callback(req, username, state);
 
 		next();
 	};
