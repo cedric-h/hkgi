@@ -31,9 +31,7 @@ const auth = (options) => {
 				ok: false,
 				msg: 'user not found',
 			};
-		}
-
-		if (
+		} else if (
 			requirePassword &&
 			!(await bcrypt.compare(password, users[username].passwordHash))
 		) {

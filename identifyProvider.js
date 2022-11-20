@@ -3,21 +3,21 @@ import crypto from 'crypto';
 import { activityPush, DOMAIN, sendWebhook, users } from './main.js';
 import auth from './authentication.js';
 
-// hkgi serves as a iDP (Identity Provider). hkgi allows 3rd party applications
+// hkgi serves as a idP (Identity Provider). hkgi allows 3rd party applications
 // to verify the identity of a user. The identity verification process is as
 // follows:
 // 1. 3rd party application POSTs to `/idp/verify/USERNAME` with an optional
-//    `webhookUrl` in the body. The response will be a Verification Request
+//    `webhookUrl` in the body. The response will be a Verification Request.
 // 2. Via the Slack App, the User will receive a message to verify the
 //    Verification Request. Alternatively, they can also POST to
-//    `/idp/verificationAttempt/ID/verify` with the proper authentication
+//    `/idp/verification/ID/verify` with the proper authentication
 //    header. Users can learn about this event by listening to the Activity
 //    webhook.
 // 3. Once successfuly verified, the 3rd party application will receive a POST
 //    to the `webhookUrl` (if provided in Step 1). The successful verification
 //    will also appear in the activity feed.
 // 4. (optional) If the 3rd party application did not receive the webhook, they
-//    can GET `/idp/verificationAttempt/ID` to see if the verification was
+//    can GET `/idp/verification/ID` to see if the verification was
 //    successful.
 
 export const router = Router();
@@ -34,7 +34,7 @@ router.post('/verify/:username', async (req, res) => {
 
 	// Create Verification Request
 	const id = uniqueId();
-	const url = 'http://' + DOMAIN + '/idp/verificationAttempt/' + id;
+	const url = 'http://' + DOMAIN + '/idp/verification/' + id;
 	const verifyUrl = url + '/verify';
 	const verificationRequest = {
 		id,
@@ -55,7 +55,7 @@ router.post('/verify/:username', async (req, res) => {
 	const vr = Object.assign({}, verificationRequest); // clone
 	delete vr.webhookUrl;
 
-	res.json({ ok: true, verificationAttempt: vr });
+	res.json({ ok: true, verificationRequest: vr });
 
 	// Add event to activity
 	activityPush('verificationRequest', {
@@ -67,7 +67,7 @@ router.post('/verify/:username', async (req, res) => {
 // For the Slack bot (or user) to verify the Verification Request that was
 // created by a 3rd party application.
 router.post(
-	'/verificationAttempt/:id/verify',
+	'/verification/:id/verify',
 	auth({
 		callback: (req, username, state) => {
 			// Log failed verification attempts
@@ -100,11 +100,11 @@ router.post(
 		const user = users[username];
 		const id = req.params.id;
 
-		// Check if verification attempt exists
+		// Check if verification request exists
 		if (user.verificationRequests?.[id] === undefined) {
 			return res.status(404).json({
 				ok: false,
-				msg: "You're authentication, but verification attempt was not found",
+				msg: `You're authentication, but verification request ${id} was not found`,
 			});
 		}
 
@@ -135,20 +135,20 @@ router.post(
 	}
 );
 
-router.get('/verificationAttempt/:id', async (req, res) => {
+router.get('/verification/:id', async (req, res) => {
 	const id = req.params.id;
 
-	// Check if verification attempt exists
+	// Check if verification request exists
 	let va;
 	let user;
 	for (const currUser in users) {
 		if (!users[currUser].verificationRequests) continue;
 		for (const vrid of Object.keys(users[currUser].verificationRequests)) {
-			if (vrid === id) {
-				user = users[currUser];
-				va = users[currUser].verificationRequests[vrid];
-				break;
-			}
+			if (vrid != id) continue;
+
+			user = users[currUser];
+			va = users[currUser].verificationRequests[vrid];
+			break;
 		}
 	}
 	if (va === undefined)
@@ -184,7 +184,7 @@ export const uniqueId = () => {
 		const id = generateId();
 		if (!existingids.includes(id)) return id;
 	}
-	throw new Error('Ran out of possible unique IDs');
+	throw new Error('Ran out of unique IDs');
 };
 
 export { router as idpRouter };
